@@ -56,9 +56,9 @@ class Config(object):
         game_arg.add_argument('--NoAgent', type=int, default=1,
                               help='number of agents, currently it should be in {1,2,3,4}')
         game_arg.add_argument('--cp1', type=float, default=2.0, help='shortage cost of player 1')
-        game_arg.add_argument('--cp2', type=float, default=0.0, help='shortage cost of player 2')
-        game_arg.add_argument('--cp3', type=float, default=0.0, help='shortage cost of player 3')
-        game_arg.add_argument('--cp4', type=float, default=0.0, help='shortage cost of player 4')
+        game_arg.add_argument('--cp2', type=float, default=2.0, help='shortage cost of player 2')
+        game_arg.add_argument('--cp3', type=float, default=2.0, help='shortage cost of player 3')
+        game_arg.add_argument('--cp4', type=float, default=2.0, help='shortage cost of player 4')
         game_arg.add_argument('--ch1', type=float, default=2.0, help='holding cost of player 1')
         game_arg.add_argument('--ch2', type=float, default=2.0, help='holding cost of player 2')
         game_arg.add_argument('--ch3', type=float, default=2.0, help='holding cost of player 3')
@@ -362,24 +362,24 @@ class Agent(object):
         self.ILInitial = IL  # IL at which we start each game with this number
         self.AOInitial = AO  # OO at which we start each game with this number
         self.config = config  # an instance of config is stored inside the class
-        self.curState = []  # this function gets the current state of the game
-        self.nextState = []
+        #self.curState = []  # this function gets the current state of the game
+        #self.nextState = []
         self.curReward = 0  # the reward observed at the current step
         self.cumReward = 0  # cumulative reward; reset at the begining of each episode
-        self.totRew = 0  # it is reward of all players obtained for the current player.
+        #self.totRew = 0  # it is reward of all players obtained for the current player.
         self.c_h = c_h  # holding cost
         self.c_p = c_p  # backorder cost
         self.eta = eta  # the total cost regulazer
-        self.AS = np.zeros((1, 1))  # arriced shipment
+        self.AS = np.zeros((1, 1))  # arrived shipment
         self.AO = np.zeros((1, 1))  # arrived order
         self.action = 0  # the action at time t
-        self.totalR = 0
+        #self.totalR = 0
 
-        self.TTT = 0
-        self.srdqnBaseStock = []  # this holds the base stock levels that srdqn has came up with. added on Nov 8, 2017
+        #self.TTT = 0
+        #self.srdqnBaseStock = []  # this holds the base stock levels that srdqn has came up with. added on Nov 8, 2017
         self.T = 0
         self.bsBaseStock = 0
-        self.init_bsBaseStock = 0
+        #self.init_bsBaseStock = 0
         self.nextObservation = []
 
     # reset player information
@@ -387,12 +387,21 @@ class Agent(object):
         self.IL = self.ILInitial
         self.OO = 0
         self.AS = np.squeeze(np.zeros(
-            (1, T + max(self.config.leadRecItemUp) + max(self.config.leadRecOrderUp) + 10)))  # arriced shipment
+            (1, T + max(self.config.leadRecItemUp) + max(self.config.leadRecOrderUp) + 10)))  # arrived shipment
         self.AO = np.squeeze(
             np.zeros((1, T + max(self.config.leadRecItemUp) + max(self.config.leadRecOrderUp) + 10)))  # arrived order
         if self.agentNum != 0:
             for i in range(self.config.leadRecOrderUp_aux[self.agentNum - 1]):
                 self.AO[i] = self.AOInitial[self.agentNum - 1]
+        # print(self.config.leadRecItemUp)
+        # print(self.config.leadRecItemLow)
+        # print(self.config.leadRecOrderUp_aux)
+        # print(self.config.leadRecOrderUp)
+        # print(self.config.leadRecOrderLow)
+        # print(self.AOInitial)
+        # exit()
+        # 我要疯了 这人怎么能写出这么臃肿的代码的！
+
         for i in range(self.config.leadRecItemUp[self.agentNum]):
             self.AS[i] = self.ASInitial
         self.curReward = 0  # the reward observed at the current step
@@ -427,6 +436,7 @@ class Agent(object):
                       49, 50, 51, 52, 53, 54, 55, 56, 57, 58, 59, 60]           #the action value is fixed to be positive
 
         if not BS:  # SRDQN
+            #print(self.agentNum, "action:",self.action)
             a = max(0, actionList[np.argmax(self.action)] + self.AO[curTime])
         else:
             a = max(0, actionList[np.argmax(self.action)])

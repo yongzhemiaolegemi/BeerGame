@@ -5,8 +5,11 @@ import numpy as np
 import random
 from collections import deque
 import itertools
-
+import DQN
+import PPO
 from env_cfg import Config, TestDemand, Agent
+import torch
+from torch.utils.tensorboard import SummaryWriter
 
 
 def get_init_len(init):
@@ -51,7 +54,7 @@ class BeerGame(gym.Env):
         self.getOptimalSol()
 
         self.totRew = 0    # it is reward of all players obtained for the current player.
-        self.totalReward = 0
+        #self.totalReward = 0
         self.n_agents = n_agents
 
         self.n_turns = n_turns_per_game
@@ -64,24 +67,18 @@ class BeerGame(gym.Env):
         # Agent 0 has 5 (-2, ..., 2) + AO
         self.action_space = gym.spaces.Tuple(tuple([gym.spaces.Discrete(5),gym.spaces.Discrete(5),gym.spaces.Discrete(5),gym.spaces.Discrete(5)]))
 
-        ob_spaces = {}
-        for i in range(self.m):
-            ob_spaces[f'current_stock_minus{i}'] = spaces.Discrete(5)
-            ob_spaces[f'current_stock_plus{i}'] = spaces.Discrete(5)
-            ob_spaces[f'OO{i}'] = spaces.Discrete(5)
-            ob_spaces[f'AS{i}'] = spaces.Discrete(5)
-            ob_spaces[f'AO{i}'] = spaces.Discrete(5)
+        # Seemingly useless code deleted
 
         # Define the observation space, x holds the size of each part of the state
-        x = [750, 750, 170, 45, 45]
-        oob = []
-        for _ in range(self.m):
-          for ii in range(len(x)):
-            oob.append(x[ii])
-        self.observation_space = gym.spaces.Tuple(tuple([spaces.MultiDiscrete(oob)] * 4))
-
-        print("Observation space:")
-        print(self.observation_space)
+        # x = [750, 750, 170, 45, 45]
+        # oob = []
+        # for _ in range(self.m):
+        #   for ii in range(len(x)):
+        #     oob.append(x[ii])
+        # self.observation_space = gym.spaces.Tuple(tuple([spaces.MultiDiscrete(oob)] * 4))
+        #
+        # print("Observation space:")
+        # print(self.observation_space)
 
     def seed(self, seed=None):
         self.np_random, seed = seeding.np_random(seed)
@@ -100,10 +97,11 @@ class BeerGame(gym.Env):
         self.curTime = 0
         self.curGame += 1
         self.totIterPlayed += self.T
-        self.T = self.planHorizon()         #now fixed
-        self.totalReward = 0
+        self.T = self.planHorizon()
+        #self.totalReward = 0
 
         self.deques = []
+        # observable state initialize
         for i in range(self.n_agents):
             deques = {}
             deques[f'current_stock_minus'] = deque([0.0] * self.m, maxlen=self.m)
@@ -114,6 +112,7 @@ class BeerGame(gym.Env):
             self.deques.append(deques)
 
         # reset the required information of player for each episode
+
         for k in range(0,self.config.NoAgent):
             self.players[k].resetPlayer(self.T)
 
@@ -127,10 +126,10 @@ class BeerGame(gym.Env):
             if not self.test_demand_pool:           #if run out of testing data
                 self.test_demand_pool = TestDemand()
         else:
-            demand = [random.randint(0,2) for _ in range(102)]
+            demand = [random.randint(0,2) for _ in range(1002)]
 
         self.resetGame(demand)
-        observations = [None] * self.n_agents
+        # observations = [None] * self.n_agents
 
         self.deques = []
         for i in range(self.n_agents):
@@ -224,7 +223,7 @@ class BeerGame(gym.Env):
 
     def handleAction(self, action):
         # get random lead time
-        leadTime = random.randint(self.config.leadRecOrderLow[0], self.config.leadRecOrderUp[0])
+        #leadTime = random.randint(self.config.leadRecOrderLow[0], self.config.leadRecOrderUp[0])
         self.cur_demand = self.demand[self.curTime]
         # set AO
         BS = False
@@ -236,22 +235,23 @@ class BeerGame(gym.Env):
                 BS = False
             else:
                 raise NotImplementedError
-                self.getAction(k)
-                BS = True
+                #self.getAction(k)
+                #BS = True
 
             # updates OO and AO at time t+1
             self.players[k].OO += self.players[k].actionValue(self.curTime, self.playType, BS = BS)     #open order level update
             leadTime = random.randint(self.config.leadRecOrderLow[k], self.config.leadRecOrderUp[k])        #order
             if self.players[k].agentNum < self.config.NoAgent-1:
+
                 if k>=0:
                     self.players[k + 1].AO[self.curTime + leadTime] += self.players[k].actionValue(self.curTime,
                                                                                                    self.playType,
                                                                                                    BS=False)  # TODO(yan): k+1 arrived order contains my own order and the order i received from k-1
                 else:
                     raise NotImplementedError
-                    self.players[k + 1].AO[self.curTime + leadTime] += self.players[k].actionValue(self.curTime,
-                                                                                                   self.playType,
-                                                                                                   BS=True)  # open order level update
+                    #self.players[k + 1].AO[self.curTime + leadTime] += self.players[k].actionValue(self.curTime,
+                    #                                                                               self.playType,
+                    #                                                                               BS=True)  # open order level update
 
     def next(self):
         # get a random leadtime for shipment
@@ -287,7 +287,7 @@ class BeerGame(gym.Env):
 
             # observe the reward
             self.players[k].getReward()
-            rewards = [-1 * self.players[i].curReward for i in range(0, self.config.NoAgent)]
+            #rewards = [-1 * self.players[i].curReward for i in range(0, self.config.NoAgent)]
 
             # update next observation
             self.players[k].nextObservation = self.players[k].getCurState(self.curTime + 1)
@@ -429,19 +429,247 @@ class BeerGame(gym.Env):
         # print('Last holding cost: ', self.holding_cost)
         # print('Last stockout cost:', self.stockout_cost)
 
+def use_dqn():
+    lr = 2e-3
+    num_episodes = 500
+    hidden_dim = 128
+    gamma = 0.98
+    epsilon = 0.01
+    target_update = 10
+    buffer_size = 10000
+    minimal_size = 100
+    batch_size = 64
+    device = torch.device("cuda") if torch.cuda.is_available() else torch.device(
+        "cpu")
+    state_dim = 200
+    action_dim = 5
+    agent = DQN.DQN_net(state_dim, hidden_dim, action_dim, lr, gamma, epsilon, target_update, device)
+    epoch = 100# 打开一个文件，用于写入奖励数据
+    with open("rewards_rn_rn_demand_new.txt", "w") as file:
+
+
+
+    # log_dir = "logs/test1"
+    # summary_writer = SummaryWriter(log_dir)
+        for i in range(epoch):
+            rewards = []
+            # env_name = 'CartPole-v0'
+            # env = gym.make(env_name)
+            random.seed(i)
+            np.random.seed(i)
+            # env.seed(0)
+            torch.manual_seed(i)
+            replay_buffer = DQN.ReplayBuffer(buffer_size)
+            # state_dim = env.observation_space.shape[0]
+            # action_dim = env.action_space.n
+
+            env = BeerGame()
+            obs = env.reset()
+            #print(obs)
+            #env.render()
+            done = False
+
+
+            turn = 0
+            while not done:
+                turn+=1
+                # print(env.action_space)
+                ac_list = []
+                action_3 = DQN.get_q_action(agent, obs)
+
+                env.players[3].action = action_3
+
+                for k in range(4):
+                    env.getAction(k)
+                    #print(np.argmax(env.players[k].action))
+                    ac_list.append(min(4,np.argmax(env.players[k].action)))
+
+                rnd_action = list(env.action_space.sample())
+                # # rnd_action = [3,1,2,0]
+                # rnd_action[3] = action_3
+                #ac_list.append(action_3)
+                next_obs, reward, done_list, _ = env.step(rnd_action)
+
+                rewards.append(-np.mean(reward))
+
+
+
+                DQN.update(obs, next_obs, action_3, reward, False, replay_buffer, agent)
+                # next_obs, reward, done_list, _ = env.step(rnd_action)
+                # print(next_obs)
+
+                obs = next_obs
+                done = all(done_list)
+                # if i%10==0:
+                #     rewards_list = [env.players[3].IL, env.players[3].OO, rnd_action[3], reward[3]]
+                #     rewards_str = ','.join(map(str, rewards_list)) + '\n'
+                #     file.write(rewards_str)
+                #env.render()
+            #print(np.sum(rewards))
+            file.write(str(np.sum(rewards))+ "\n")
+
+
+
+
+            #summary_writer.add_scalar("cost/BS+BS", np.sum(rewards), i)
+
+        #summary_writer.close()
+
+
+
+def use_ppo():
+    actor_lr = 1e-4
+    critic_lr = 1e-4
+    num_episodes = 500
+    hidden_dim = 128
+    gamma = 0.98
+    lmbda = 0.95
+    epochs = 10
+    epoch = 100
+    eps = 0.2
+    device = torch.device("cuda") if torch.cuda.is_available() else torch.device(
+        "cpu")
+
+
+    torch.manual_seed(0)
+    state_dim = 200
+    action_dim = 5
+    agent = PPO.PPO(state_dim, hidden_dim, action_dim, actor_lr, critic_lr, lmbda,
+                epochs, eps, gamma, device)
+
+    with open("rewards_bs_ppo.txt", "w") as file:
+        for i in range(epoch):
+            rewards = []
+            env = BeerGame()
+            obs = env.reset()
+            #print(obs)
+            #env.render()
+            done = False
+            turn = 1
+            transition_dict = {'states': [], 'actions': [], 'next_states': [], 'rewards': [], 'dones': []}
+            while not done:
+
+                turn+=1
+                # print(env.action_space)
+                ac_list = []
+                #print(obs)
+                action_3 = agent.take_action(obs)
+
+                env.players[3].action = action_3
+
+                for k in range(3):
+                    env.getAction(k)
+                    #print(np.argmax(env.players[k].action))
+                    ac_list.append(min(4,np.argmax(env.players[k].action)))
+                ac_list.append(action_3)
+                rnd_action = list(env.action_space.sample())
+                # rnd_action = [3,1,2,0]
+                rnd_action[3] = action_3
+                next_obs, reward, done_list, _ = env.step(ac_list)
+                rewards.append(-np.mean(reward))
+                #print(obs)
+                transition_dict['states'].append(np.array(obs).reshape(-1,1).squeeze(1))
+                transition_dict['actions'].append(action_3)
+                transition_dict['next_states'].append(np.array(next_obs).reshape(-1,1).squeeze(1))
+                transition_dict['rewards'].append(sum(reward))
+                transition_dict['dones'].append(0)
+                obs = next_obs
+                if turn%10==0:
+                    agent.update(transition_dict)
+                    transition_dict = {'states': [], 'actions': [], 'next_states': [], 'rewards': [], 'dones': []}
+
+
+                # next_obs, reward, done_list, _ = env.step(rnd_action)
+                # print(next_obs)
+                done = all(done_list)
+                #env.render()
+
+            #transition_dict = {'states': [], 'actions': [], 'next_states': [], 'rewards': [], 'dones': []}
+            #print(np.sum(rewards))
+            file.write(str(np.sum(rewards)) + "\n")
+def draw():
+    with open("rewards_bs_ppo.txt", "r") as file:
+
+        rewards = file.readlines()
+    rewards_bs_ppo_list = [float(reward.strip()) for reward in rewards]
+
+    # with open("rewards_rn_rn_demand_new.txt", "r") as file:
+    #
+    #     rewards = file.readlines()
+    #
+    # rewards_rd_rd_list = [float(reward.strip()) for reward in rewards]
+    # with open("rewards_bs_bs_demand_new.txt", "r") as file:
+    #
+    #     rewards = file.readlines()
+    #
+    # rewards_bs_bs_list = [float(reward.strip()) for reward in rewards]
+    with open("rewards_bs_dqn.txt", "r") as file:
+
+        rewards = file.readlines()
+
+    rewards_bs_dqn_list = [float(reward.strip()) for reward in rewards]
+    log_dir = "logs/test3"
+    summary_writer = SummaryWriter(log_dir)
+    turn = 0
+    for i,j in zip(rewards_bs_dqn_list, rewards_bs_ppo_list):
+        turn+=1
+        #print(i,j)
+        summary_writer.add_scalars("cost2", {'BS_DQN': i,'BS_PPO': j}, turn)
+
+    summary_writer.close()
+
+
+def draw_2():
+
+    with open("actions_rn_rn_demand_new.txt", "r") as file:
+
+        rewards = file.readlines()
+
+
+    rewards_rd_rd_list = [list(map(float, line.strip().split(','))) for line in rewards]
+    with open("actions_bs_bs_demand_new.txt", "r") as file:
+
+        rewards = file.readlines()
+
+    rewards_bs_bs_list = [list(map(float, line.strip().split(','))) for line in rewards]
+    with open("actions_bs_dqn_demand_new.txt", "r") as file:
+
+        rewards = file.readlines()
+
+    rewards_bs_dqn_list = [list(map(float, line.strip().split(','))) for line in rewards]
+    log_dir = "logs/test2"
+    summary_writer = SummaryWriter(log_dir)
+    turn = 0
+    for i,j,k in zip(rewards_rd_rd_list, rewards_bs_bs_list, rewards_bs_dqn_list):
+        #print(i,j,k)
+        il_i = i[0]
+        oo_i = i[1]
+        ac_i = i[2]
+        r_i = i[3]
+        il_j = j[0]
+        oo_j= j[1]
+        ac_j = j[2]
+        r_j = j[3]
+        il_k = k[0]
+        oo_k = k[1]
+        ac_k = k[2]
+        r_k = k[3]
+        turn+=1
+        #print(i,j,k)
+        summary_writer.add_scalars("il", {'RD_RD': il_i,'BS_BS': il_j,'BS_DQN': il_k}, turn)
+        summary_writer.add_scalars("oo", {'RD_RD': oo_i, 'BS_BS': oo_j, 'BS_DQN': oo_k}, turn)
+        summary_writer.add_scalars("ac", {'RD_RD': ac_i, 'BS_BS': ac_j, 'BS_DQN': ac_k}, turn)
+        summary_writer.add_scalars("r", {'RD_RD': r_i, 'BS_BS': r_j, 'BS_DQN': r_k}, turn)
+
+    summary_writer.close()
 
 
 if __name__ == "__main__":
-    env = BeerGame()
-    obs = env.reset()
-    env.render()
-    done = False
+    use_dqn()
+    draw()
+    #use_ppo()
+    #draw_2()
 
-    while not done:
-        rnd_action = env.action_space.sample()
-        next_obs, reward, done_list, _ = env.step(rnd_action)
-        done = all(done_list)
-        env.render()
 
 
     print(1)
